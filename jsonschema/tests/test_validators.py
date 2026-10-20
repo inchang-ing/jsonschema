@@ -646,7 +646,19 @@ class TestValidationErrorMessages(TestCase):
         )
         self.assertEqual(
             message,
-            "Too many items match the given schema (expected at most 2)",
+            "Too many items match the given schema "
+            "(expected at most 2 but 3 matched)",
+        )
+
+    def test_contains_none_with_min_contains(self):
+        message = self.message_for(
+            instance=[2, 4],
+            schema={"contains": {"type": "string"}, "minContains": 2},
+        )
+        self.assertEqual(
+            message,
+            "[2, 4] does not contain items matching the given schema "
+            "(expected at least 2)",
         )
 
     def test_contains_too_many_both_constrained(self):
@@ -660,7 +672,8 @@ class TestValidationErrorMessages(TestCase):
         )
         self.assertEqual(
             message,
-            "Too many items match the given schema (expected at most 4)",
+            "Too many items match the given schema "
+            "(expected at most 4 but 5 matched)",
         )
 
     def test_exclusiveMinimum(self):
@@ -1519,7 +1532,10 @@ class TestValidationErrorDetails(TestCase):
                 error.json_path,
             ),
             (
-                "Too many items match the given schema (expected at most 2)",
+                (
+                    "Too many items match the given schema "
+                    "(expected at most 2 but 3 matched)"
+                ),
                 "maxContains",
                 2,
                 ["foo", 2, "bar", 4, "baz", "quux"],
@@ -1576,15 +1592,54 @@ class TestValidationErrorDetails(TestCase):
                 error.json_path,
             ),
             (
-                "[2, 4] does not contain items matching the given schema",
-                "contains",
-                {"type": "string"},
+                (
+                    "[2, 4] does not contain items matching the given schema "
+                    "(expected at least 2)"
+                ),
+                "minContains",
+                2,
                 [2, 4],
                 deque(),
                 {"contains": {"type": "string"}, "minContains": 2},
                 deque(["contains"]),
                 "$",
             ),
+        )
+
+    def test_contains_none_across_drafts(self):
+        """
+        Zero matches with an explicit `minContains` are reported as a
+        `minContains` error in every draft which supports the keyword.
+        """
+        for Validator in (
+            validators.Draft201909Validator,
+            validators.Draft202012Validator,
+        ):
+            with self.subTest(Validator=Validator):
+                schema = {"contains": {"type": "string"}, "minContains": 2}
+                validator = Validator(schema)
+                (error,) = validator.iter_errors([2, 4])
+                self.assertEqual(error.validator, "minContains")
+                self.assertEqual(error.validator_value, 2)
+                self.assertEqual(
+                    error.message,
+                    "[2, 4] does not contain items matching the given "
+                    "schema (expected at least 2)",
+                )
+
+    def test_contains_none_defaults_to_contains(self):
+        """
+        Without an explicit `minContains`, zero matches are still reported
+        as a `contains` error.
+        """
+        schema = {"contains": {"type": "string"}}
+        validator = validators.Draft202012Validator(schema)
+        (error,) = validator.iter_errors([2, 4])
+        self.assertEqual(error.validator, "contains")
+        self.assertEqual(error.validator_value, {"type": "string"})
+        self.assertEqual(
+            error.message,
+            "[2, 4] does not contain items matching the given schema",
         )
 
     def test_ref_sibling(self):
